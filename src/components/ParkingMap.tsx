@@ -60,12 +60,19 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
   const legendRef       = useRef<HTMLDivElement>(null);
   const speedIndicRef   = useRef<HTMLDivElement>(null);
 
-  // Smart notification dedup: zone id → timestamp of last notification
-  const zoneCooldownRef = useRef<Map<number, number>>(new Map());
+  // Dwell timer ref: zoneId -> timestamp when user first became stationary in zone
+  const zoneDwellRef = useRef<Map<number, number>>(new Map());
 
   const [parkingAlert, setParkingAlert] = useState<ParkingZone | null>(null);
   const [zoneCount, setZoneCount]       = useState<{ free: number; paid: number }>({ free: 0, paid: 0 });
-  const [zones, setZones]               = useState<ParkingZone[]>([]);
+  const [zones, setZones]               = useState<ParkingZone[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      return JSON.parse(localStorage.getItem('parkscan_cached_zones') || '[]');
+    } catch {
+      return [];
+    }
+  });
   const [screenPoints, setScreenPoints] = useState<Record<number, ScreenPoint>>({});
   const [selectedZone, setSelectedZone] = useState<ParkingZone | null>(null);
   const [motionMode, setMotionMode]     = useState<'highway' | 'driving' | 'parking' | 'walking'>('walking');
@@ -131,20 +138,35 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
     updateScreenPoints();
   }, [updateScreenPoints]);
 
-  // ── Smart Notification Engine ─────────────────────────────────────────────
+  // ── Smart Notification Engine with Dwell Guardrail ───────────────────────
   const maybeNotify = useCallback((zone: ParkingZone, speed: number | null) => {
     const mode = getMotionMode(speed);
-    // Only notify when slowing down or walking — never at highway/city speed
+    // Never notify on highway or driving fast
     if (mode === 'highway' || mode === 'driving') return;
 
     const now = Date.now();
+
+    // 🚦 Red Light / Dwell Guardrail:
+    // If user is stopped/stationary (speed < 1.5 m/s), check if they have dwelled > 15 seconds
+    // to distinguish pulling into a spot from stopping at a traffic light!
+    if (mode === 'walking') {
+      const firstEntry = zoneDwellRef.current.get(zone.id);
+      if (!firstEntry) {
+        zoneDwellRef.current.set(zone.id, now);
+        return; // wait for dwell confirmation on next GPS tick
+      }
+      if (now - firstEntry < 15000) {
+        return; // Dwell time < 15 seconds, likely a traffic light!
+      }
+    }
+
     const lastNotified = zoneCooldownRef.current.get(zone.id) ?? 0;
-    if (now - lastNotified < ZONE_COOLDOWN) return; // still in cooldown
+    if (now - lastNotified < ZONE_COOLDOWN) return; // still in 10-min cooldown
 
     zoneCooldownRef.current.set(zone.id, now);
 
-    const modeLabel = mode === 'parking' ? 'Vous ralentissez' : 'À pied à proximité';
-    const body = `${zone.name} — ${modeLabel}, zone payante à ${ZONE_RADIUS_M}m`;
+    const modeLabel = mode === 'parking' ? 'Vous ralentissez' : 'Arrêté en zone payante';
+    const body = `${zone.name} — ${modeLabel}, stationnement payant à ${ZONE_RADIUS_M}m`;
 
     if (Notification.permission !== 'granted') return;
 
@@ -225,6 +247,13 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
         free: fetched.filter((z) => !z.isPaid).length,
         paid: fetched.filter((z) => z.isPaid).length,
       });
+
+      // Save to localStorage for instant offline map rendering
+      try {
+        localStorage.setItem('parkscan_cached_zones', JSON.stringify(fetched));
+      } catch {
+        // quota exceeded fallback
+      }
     } catch (err) {
       console.error('Overpass error:', err);
     }

@@ -340,26 +340,47 @@ export default function CameraView({ apiKey, onScanResult }: CameraViewProps) {
   const [flashOn, setFlashOn] = useState(false);
   const [noCamera, setNoCamera] = useState(false);
 
-  // ── Start Camera ────────────────────────────────────────────────────────────
+  // ── Start Camera & Lifecycle ────────────────────────────────────────────────
   useEffect(() => {
     let localStream: MediaStream | null = null;
+    let isActive = true;
 
     async function startCamera() {
+      if (!isActive) return;
       try {
         const mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false,
         });
+        if (!isActive) {
+          mediaStream.getTracks().forEach((t) => t.stop());
+          return;
+        }
         localStream = mediaStream;
         streamRef.current = mediaStream;
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream;
         }
+        localStorage.setItem('parkscan_camera_granted', 'true');
+        setNoCamera(false);
       } catch {
-        setNoCamera(true);
+        if (isActive) setNoCamera(true);
       }
     }
 
     startCamera();
+
+    // Re-start / stop stream on tab visibility change to prevent iOS hardware lock
+    const handleVisibility = () => {
+      if (document.hidden) {
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      } else {
+        startCamera();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
 
     // Bottom controls entrance
     gsap.fromTo(bottomControlsRef.current,
@@ -368,7 +389,11 @@ export default function CameraView({ apiKey, onScanResult }: CameraViewProps) {
     );
 
     return () => {
+      isActive = false;
+      document.removeEventListener('visibilitychange', handleVisibility);
       localStream?.getTracks().forEach((t) => t.stop());
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
     };
   }, []);
 
