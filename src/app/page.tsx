@@ -344,6 +344,21 @@ function SettingsSheet({
     return window.matchMedia('(display-mode: standalone)').matches || ('standalone' in navigator && (navigator as unknown as { standalone: boolean }).standalone);
   });
 
+  // Theme State
+  const [activeTheme, setActiveTheme] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('parkscan_theme') || 'emerald';
+    }
+    return 'emerald';
+  });
+
+  const handleSelectTheme = (themeId: string) => {
+    triggerHaptic(12);
+    setActiveTheme(themeId);
+    localStorage.setItem('parkscan_theme', themeId);
+    document.documentElement.setAttribute('data-theme', themeId);
+  };
+
   const handleSaveKey = () => {
     triggerHaptic(12);
     const v = inputRef.current?.value.trim() || '';
@@ -477,6 +492,64 @@ function SettingsSheet({
               </button>
             </div>
           )}
+        </div>
+
+        {/* Theme Customization */}
+        <div className="settings-section">
+          <p className="settings-label">Theme Customization</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px', marginTop: '8px' }}>
+            {[
+              { id: 'emerald', name: 'Emerald Cyber', color: '#22c55e' },
+              { id: 'solar', name: 'Solar Amber', color: '#f97316' },
+              { id: 'cyberpunk', name: 'Cyberpunk', color: '#a855f7' },
+              { id: 'cyan', name: 'Midnight Cyan', color: '#06b6d4' },
+              { id: 'crimson', name: 'Crimson Racer', color: '#ef4444' },
+            ].map((t) => {
+              const active = activeTheme === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => handleSelectTheme(t.id)}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '10px 4px',
+                    background: active ? 'var(--bg-elevated)' : 'var(--bg-card)',
+                    border: `1.5px solid ${active ? t.color : 'var(--border)'}`,
+                    borderRadius: 'var(--radius)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    boxShadow: active ? `0 0 14px ${t.color}44` : 'none',
+                  }}
+                >
+                  <span
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '50%',
+                      background: t.color,
+                      boxShadow: `0 0 8px ${t.color}88`,
+                      display: 'inline-block',
+                      border: active ? '2px solid #ffffff' : 'none',
+                    }}
+                  />
+                  <span
+                    style={{
+                      fontSize: '0.6rem',
+                      fontWeight: 700,
+                      color: active ? '#ffffff' : 'var(--text-muted)',
+                      textAlign: 'center',
+                      lineHeight: 1.1,
+                    }}
+                  >
+                    {t.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Permissions & Access Control */}
@@ -744,6 +817,11 @@ export default function Home() {
 
   // ── Init ────────────────────────────────────────────────────────────────────
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedTheme = localStorage.getItem('parkscan_theme') || 'emerald';
+      document.documentElement.setAttribute('data-theme', savedTheme);
+    }
+
     if (apiKey) {
       requestAllPermissions();
     }

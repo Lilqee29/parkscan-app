@@ -55,6 +55,58 @@
   --radius-xl:    28px;
 }
 
+/* ─── 5 CUSTOM COLOR THEMES ────────────────────────────────────────────────── */
+
+/* 1. Emerald Cyber (Default Green) */
+[data-theme="emerald"] {
+  --accent:       #22c55e;
+  --accent-dark:  #16a34a;
+  --accent-dim:   rgba(34,197,94,0.15);
+  --accent-glow:  rgba(34,197,94,0.4);
+  --neon-green:   0 0 20px rgba(34,197,94,0.5), 0 0 60px rgba(34,197,94,0.2);
+  --border-accent: rgba(34,197,94,0.3);
+}
+
+/* 2. Solar Amber (Vibrant Orange) */
+[data-theme="solar"] {
+  --accent:       #f97316;
+  --accent-dark:  #ea580c;
+  --accent-dim:   rgba(249,115,22,0.15);
+  --accent-glow:  rgba(249,115,22,0.4);
+  --neon-green:   0 0 20px rgba(249,115,22,0.5), 0 0 60px rgba(249,115,22,0.2);
+  --border-accent: rgba(249,115,22,0.3);
+}
+
+/* 3. Cyberpunk Neon (Electric Violet) */
+[data-theme="cyberpunk"] {
+  --accent:       #a855f7;
+  --accent-dark:  #9333ea;
+  --accent-dim:   rgba(168,85,247,0.15);
+  --accent-glow:  rgba(168,85,247,0.4);
+  --neon-green:   0 0 20px rgba(168,85,247,0.5), 0 0 60px rgba(168,85,247,0.2);
+  --border-accent: rgba(168,85,247,0.3);
+}
+
+/* 4. Midnight Cyan (Electric Aqua) */
+[data-theme="cyan"] {
+  --accent:       #06b6d4;
+  --accent-dark:  #0891b2;
+  --accent-dim:   rgba(6,182,212,0.15);
+  --accent-glow:  rgba(6,182,212,0.4);
+  --neon-green:   0 0 20px rgba(6,182,212,0.5), 0 0 60px rgba(6,182,212,0.2);
+  --border-accent: rgba(6,182,212,0.3);
+}
+
+/* 5. Crimson Racer (Hot Racing Red) */
+[data-theme="crimson"] {
+  --accent:       #ef4444;
+  --accent-dark:  #dc2626;
+  --accent-dim:   rgba(239,68,68,0.15);
+  --accent-glow:  rgba(239,68,68,0.4);
+  --neon-green:   0 0 20px rgba(239,68,68,0.5), 0 0 60px rgba(239,68,68,0.2);
+  --border-accent: rgba(239,68,68,0.3);
+}
+
 /* ============================================
    RESET & BASE
    ============================================ */
