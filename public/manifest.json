@@ -1,0 +1,28 @@
+{
+  "name": "ParkScan — Parking Sign Reader",
+  "short_name": "ParkScan",
+  "description": "Point at French parking signs, get instant answers. Live paid parking map for Rennes.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#22c55e",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "categories": ["navigation", "utilities"],
+  "lang": "fr",
+  "dir": "ltr"
+}
