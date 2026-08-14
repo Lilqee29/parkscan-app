@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Allow unoptimized local images (the 2K JPEG assets)
+  images: {
+    unoptimized: true,
+  },
+
   // PWA headers
   async headers() {
     return [
@@ -13,6 +18,7 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+
 };
 
 export default nextConfig;
