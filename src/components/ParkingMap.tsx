@@ -5,8 +5,19 @@ import { gsap } from 'gsap';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
+// ─── Speed thresholds ────────────────────────────────────────────────────────
+//  > 25 m/s  (~90 km/h)  → highway/expressway, never notify
+//  8–25 m/s  (~30–90)    → driving in city, watch but don't alert yet
+//  2–8 m/s   (~7–30)     → slowing down / looking for parking  ← NOTIFY HERE
+//  < 2 m/s               → walking or stopped near a zone      ← NOTIFY HERE
+const SPEED_HIGHWAY   = 25;   // m/s — above this: silent
+const SPEED_PARKING   = 8;    // m/s — below this: user is likely parking
+const ZONE_RADIUS_M   = 100;  // metres — proximity trigger
+const ZONE_COOLDOWN   = 10 * 60 * 1000; // 10 min per-zone cooldown
+const CLEAR_RADIUS_M  = 300;  // metres — beyond this, reset all cooldowns
+
 interface ParkingMapProps {
-  userPosition: { lat: number; lng: number } | null;
+  userPosition: { lat: number; lng: number; speed: number | null } | null;
 }
 
 interface ParkingZone {
@@ -20,10 +31,7 @@ interface ParkingZone {
   capacity: string;
 }
 
-interface ScreenPoint {
-  x: number;
-  y: number;
-}
+interface ScreenPoint { x: number; y: number; }
 
 function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371e3;
@@ -35,21 +43,34 @@ function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/** Classify motion context from GPS speed */
+function getMotionMode(speedMs: number | null): 'highway' | 'driving' | 'parking' | 'walking' {
+  if (speedMs === null || speedMs === undefined) return 'walking';
+  if (speedMs > SPEED_HIGHWAY) return 'highway';
+  if (speedMs > SPEED_PARKING) return 'driving';
+  if (speedMs > 1.5) return 'parking';
+  return 'walking';
+}
+
 export default function ParkingMap({ userPosition }: ParkingMapProps) {
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<L.Map | null>(null);
-  const userMarkerRef = useRef<L.Marker | null>(null);
-  const alertRef = useRef<HTMLDivElement>(null);
-  const legendRef = useRef<HTMLDivElement>(null);
-  const notifiedZonesRef = useRef<Set<number>>(new Set());
+  const mapRef       = useRef<HTMLDivElement>(null);
+  const mapInstanceRef  = useRef<L.Map | null>(null);
+  const userMarkerRef   = useRef<L.Marker | null>(null);
+  const alertRef        = useRef<HTMLDivElement>(null);
+  const legendRef       = useRef<HTMLDivElement>(null);
+  const speedIndicRef   = useRef<HTMLDivElement>(null);
+
+  // Smart notification dedup: zone id → timestamp of last notification
+  const zoneCooldownRef = useRef<Map<number, number>>(new Map());
 
   const [parkingAlert, setParkingAlert] = useState<ParkingZone | null>(null);
-  const [zoneCount, setZoneCount] = useState<{ free: number; paid: number }>({ free: 0, paid: 0 });
-  const [zones, setZones] = useState<ParkingZone[]>([]);
+  const [zoneCount, setZoneCount]       = useState<{ free: number; paid: number }>({ free: 0, paid: 0 });
+  const [zones, setZones]               = useState<ParkingZone[]>([]);
   const [screenPoints, setScreenPoints] = useState<Record<number, ScreenPoint>>({});
   const [selectedZone, setSelectedZone] = useState<ParkingZone | null>(null);
+  const [motionMode, setMotionMode]     = useState<'highway' | 'driving' | 'parking' | 'walking'>('walking');
 
-  // ── Update screen positions of overlay cards on map move/zoom ────────────────
+  // ── Update overlay card screen positions on map move/zoom ─────────────────
   const updateScreenPoints = useCallback(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -61,7 +82,7 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
     setScreenPoints(pts);
   }, [zones]);
 
-  // ── Initialize Map ──────────────────────────────────────────────────────────
+  // ── Initialize Map ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
 
@@ -83,10 +104,8 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
 
     mapInstanceRef.current = map;
 
-    // Recalculate overlay card positions whenever map moves or zooms
     map.on('move zoom moveend zoomend', updateScreenPoints);
 
-    // Entrance animation
     gsap.fromTo(mapRef.current,
       { opacity: 0 },
       { opacity: 1, duration: 0.5, ease: 'power2.out', delay: 0.1 }
@@ -103,16 +122,53 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-bind move listener when updateScreenPoints changes (zones loaded)
+  // Re-bind move listener whenever zones change
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
     map.off('move zoom moveend zoomend');
     map.on('move zoom moveend zoomend', updateScreenPoints);
-    updateScreenPoints(); // run immediately
+    updateScreenPoints();
   }, [updateScreenPoints]);
 
-  // ── Fetch Parking Zones ─────────────────────────────────────────────────────
+  // ── Smart Notification Engine ─────────────────────────────────────────────
+  const maybeNotify = useCallback((zone: ParkingZone, speed: number | null) => {
+    const mode = getMotionMode(speed);
+    // Only notify when slowing down or walking — never at highway/city speed
+    if (mode === 'highway' || mode === 'driving') return;
+
+    const now = Date.now();
+    const lastNotified = zoneCooldownRef.current.get(zone.id) ?? 0;
+    if (now - lastNotified < ZONE_COOLDOWN) return; // still in cooldown
+
+    zoneCooldownRef.current.set(zone.id, now);
+
+    const modeLabel = mode === 'parking' ? 'Vous ralentissez' : 'À pied à proximité';
+    const body = `${zone.name} — ${modeLabel}, zone payante à ${ZONE_RADIUS_M}m`;
+
+    if (Notification.permission !== 'granted') return;
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready.then((reg) => {
+        reg.showNotification('🅿️ Zone payante détectée', {
+          body,
+          icon: '/assets/parkscan_icon.jpeg',
+          badge: '/assets/parkscan_icon.jpeg',
+          tag: `paid-zone-${zone.id}`,
+          ...({ vibrate: [150, 80, 150] } as Record<string, unknown>),
+        });
+      });
+    } else {
+      new Notification('🅿️ Zone payante détectée', {
+        body,
+        icon: '/assets/parkscan_icon.jpeg',
+      });
+    }
+
+    if (navigator.vibrate) navigator.vibrate([150, 80, 150]);
+  }, []);
+
+  // ── Fetch Parking Zones from Overpass ────────────────────────────────────
   const fetchParkingZones = useCallback(async (lat: number, lng: number) => {
     const radius = 500;
     const query = `
@@ -146,16 +202,10 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
           tags.parking === 'lane' ||
           tags.access === 'customers';
 
-        // accept nodes AND ways with a center coord
         let elLat: number | undefined;
         let elLng: number | undefined;
-        if (el.type === 'node') {
-          elLat = el.lat;
-          elLng = el.lon;
-        } else if (el.center) {
-          elLat = el.center.lat;
-          elLng = el.center.lon;
-        }
+        if (el.type === 'node') { elLat = el.lat; elLng = el.lon; }
+        else if (el.center)    { elLat = el.center.lat; elLng = el.center.lon; }
         if (elLat === undefined || elLng === undefined) continue;
 
         fetched.push({
@@ -171,93 +221,79 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
       }
 
       setZones(fetched);
-
-      const freeCount = fetched.filter((z) => !z.isPaid).length;
-      const paidCount = fetched.filter((z) => z.isPaid).length;
-      setZoneCount({ free: freeCount, paid: paidCount });
-
-      // Check proximity for alert + notification
-      const nearestPaid = fetched.find(
-        (z) => z.isPaid && getDistance(lat, lng, z.lat, z.lng) < 80
-      );
-      if (nearestPaid) {
-        setParkingAlert(nearestPaid);
-        if (navigator.vibrate) navigator.vibrate([150, 80, 150]);
-        // Only notify once per zone to avoid spam
-        if (
-          Notification.permission === 'granted' &&
-          !notifiedZonesRef.current.has(nearestPaid.id)
-        ) {
-          notifiedZonesRef.current.add(nearestPaid.id);
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.ready.then((reg) => {
-              reg.showNotification('🅿️ Zone payante à proximité!', {
-                body: `${nearestPaid.name} — À moins de 80m`,
-                icon: '/assets/parkscan_icon.jpeg',
-                badge: '/assets/parkscan_icon.jpeg',
-                tag: `paid-zone-${nearestPaid.id}`,
-                ...({ vibrate: [200, 100, 200] } as Record<string, unknown>),
-              });
-            });
-          } else {
-            new Notification('🅿️ Zone payante à proximité!', {
-              body: `${nearestPaid.name} — À moins de 80m`,
-              icon: '/assets/parkscan_icon.jpeg',
-            });
-          }
-        }
-      } else {
-        setParkingAlert(null);
-        // Clear notified set when far from all zones (reset after 200m)
-        const anyClose = fetched.some(
-          (z) => z.isPaid && getDistance(lat, lng, z.lat, z.lng) < 200
-        );
-        if (!anyClose) notifiedZonesRef.current.clear();
-      }
+      setZoneCount({
+        free: fetched.filter((z) => !z.isPaid).length,
+        paid: fetched.filter((z) => z.isPaid).length,
+      });
     } catch (err) {
       console.error('Overpass error:', err);
     }
   }, []);
 
-  // ── Update User Position ────────────────────────────────────────────────────
+  // ── Update position, marker, and run smart proximity check ───────────────
   useEffect(() => {
     if (!userPosition || !mapInstanceRef.current) return;
 
+    const { lat, lng, speed } = userPosition;
     const map = mapInstanceRef.current;
+    const mode = getMotionMode(speed);
+    setMotionMode(mode);
 
+    // Move or create user marker
     if (userMarkerRef.current) {
-      userMarkerRef.current.setLatLng([userPosition.lat, userPosition.lng]);
+      userMarkerRef.current.setLatLng([lat, lng]);
     } else {
       const userIcon = L.divIcon({
         className: 'user-location-marker',
-        html: '', // styled entirely via CSS ::before pseudo-element
+        html: '',
         iconSize: [18, 18],
         iconAnchor: [9, 9],
       });
-      userMarkerRef.current = L.marker(
-        [userPosition.lat, userPosition.lng],
-        { icon: userIcon, zIndexOffset: 1000 }
-      ).addTo(map);
+      userMarkerRef.current = L.marker([lat, lng], {
+        icon: userIcon,
+        zIndexOffset: 1000,
+      }).addTo(map);
     }
 
-    map.setView([userPosition.lat, userPosition.lng], map.getZoom());
-    fetchParkingZones(userPosition.lat, userPosition.lng);
-  }, [userPosition, fetchParkingZones]);
+    map.setView([lat, lng], map.getZoom());
 
-  // ── Update card positions when zones change ─────────────────────────────────
-  useEffect(() => {
-    updateScreenPoints();
-  }, [zones, updateScreenPoints]);
+    // Fetch new zones when user has moved (don't spam Overpass)
+    fetchParkingZones(lat, lng);
 
-  // ── Alert Animation ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!alertRef.current) return;
-    if (parkingAlert) {
-      gsap.fromTo(alertRef.current,
-        { opacity: 0, y: 20, scale: 0.95 },
-        { opacity: 1, y: 0, scale: 1, duration: 0.4, ease: 'back.out(1.5)' }
+    // ── Smart proximity + notification check ───────────────────────────────
+    if (mode === 'highway') {
+      // Driving fast — no alerts, clear banner
+      setParkingAlert(null);
+      return;
+    }
+
+    const nearestPaid = zones.find(
+      (z) => z.isPaid && getDistance(lat, lng, z.lat, z.lng) < ZONE_RADIUS_M
+    );
+
+    if (nearestPaid) {
+      setParkingAlert(nearestPaid);
+      maybeNotify(nearestPaid, speed);
+    } else {
+      setParkingAlert(null);
+      // If far from all paid zones → reset all cooldowns so they're fresh next time
+      const anyNearby = zones.some(
+        (z) => z.isPaid && getDistance(lat, lng, z.lat, z.lng) < CLEAR_RADIUS_M
       );
+      if (!anyNearby) zoneCooldownRef.current.clear();
     }
+  }, [userPosition, zones, fetchParkingZones, maybeNotify]);
+
+  // Update screen overlay when zones load
+  useEffect(() => { updateScreenPoints(); }, [zones, updateScreenPoints]);
+
+  // Alert entrance animation
+  useEffect(() => {
+    if (!alertRef.current || !parkingAlert) return;
+    gsap.fromTo(alertRef.current,
+      { opacity: 0, y: 20, scale: 0.95 },
+      { opacity: 1, y: 0, scale: 1, duration: 0.4, ease: 'back.out(1.5)' }
+    );
   }, [parkingAlert]);
 
   const dismissAlert = () => {
@@ -271,17 +307,19 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
     }
   };
 
+  // Motion mode display config
+  const motionConfig = {
+    highway: { icon: '🛣️', label: 'Autoroute', color: '#7070a0' },
+    driving: { icon: '🚗', label: 'En voiture', color: '#3b82f6' },
+    parking: { icon: '🔍', label: 'Cherche parking', color: '#f59e0b' },
+    walking: { icon: '🚶', label: 'À pied / Arrêté', color: '#22c55e' },
+  }[motionMode];
+
   return (
     <div style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
-      {/* Dark tile CSS injection */}
       <style>{`
         .dark-tiles {
-          filter:
-            brightness(0.65)
-            saturate(0.4)
-            hue-rotate(180deg)
-            contrast(1.1)
-            invert(1);
+          filter: brightness(0.65) saturate(0.4) hue-rotate(180deg) contrast(1.1) invert(1);
         }
         .parkscan-popup .leaflet-popup-content-wrapper {
           background: #16162a !important;
@@ -299,7 +337,7 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
       {/* Map canvas */}
       <div ref={mapRef} style={{ width: '100%', height: '100%', opacity: 0 }} />
 
-      {/* ── React-rendered overlay zone cards ─────────────────────────────── */}
+      {/* ── React overlay zone cards ─────────────────────────────────────── */}
       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 5 }}>
         {zones.map((zone) => {
           const pt = screenPoints[zone.id];
@@ -316,23 +354,22 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
                 <span style={{
                   width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
                   background: zone.isPaid ? '#ef4444' : '#22c55e',
-                  boxShadow: zone.isPaid
-                    ? '0 0 6px rgba(239,68,68,0.8)'
-                    : '0 0 6px rgba(34,197,94,0.8)',
+                  boxShadow: zone.isPaid ? '0 0 6px rgba(239,68,68,0.8)' : '0 0 6px rgba(34,197,94,0.8)',
                 }} />
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#eaeaf8', letterSpacing: '-0.01em' }}>
+                  {shortTitle}
+                </span>
                 <span style={{
-                  fontSize: '0.72rem', fontWeight: 700,
-                  color: '#eaeaf8', letterSpacing: '-0.01em',
-                }}>{shortTitle}</span>
-                <span style={{
-                  fontSize: '0.58rem', fontWeight: 800,
-                  padding: '1px 5px', borderRadius: 8, letterSpacing: '0.04em',
+                  fontSize: '0.58rem', fontWeight: 800, padding: '1px 5px',
+                  borderRadius: 8, letterSpacing: '0.04em',
                   background: zone.isPaid ? 'rgba(239,68,68,0.18)' : 'rgba(34,197,94,0.18)',
                   color: zone.isPaid ? '#ef4444' : '#22c55e',
-                }}>{zone.isPaid ? 'PAYANT' : 'FREE'}</span>
+                }}>
+                  {zone.isPaid ? 'PAYANT' : 'FREE'}
+                </span>
               </div>
 
-              {/* Expanded popup card */}
+              {/* Expanded popup */}
               {selectedZone?.id === zone.id && (
                 <div style={{
                   position: 'absolute',
@@ -354,19 +391,13 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
                     {zone.name}
                   </p>
                   {zone.operator && (
-                    <p style={{ fontSize: '0.72rem', color: '#7070a0', marginBottom: 3 }}>
-                      🏢 {zone.operator}
-                    </p>
+                    <p style={{ fontSize: '0.72rem', color: '#7070a0', marginBottom: 3 }}>🏢 {zone.operator}</p>
                   )}
                   {zone.maxStay && (
-                    <p style={{ fontSize: '0.72rem', color: '#7070a0', marginBottom: 3 }}>
-                      ⏱️ Max: {zone.maxStay}
-                    </p>
+                    <p style={{ fontSize: '0.72rem', color: '#7070a0', marginBottom: 3 }}>⏱️ Max: {zone.maxStay}</p>
                   )}
                   {zone.capacity && (
-                    <p style={{ fontSize: '0.72rem', color: '#7070a0', marginBottom: 6 }}>
-                      🅿️ Places: {zone.capacity}
-                    </p>
+                    <p style={{ fontSize: '0.72rem', color: '#7070a0', marginBottom: 6 }}>🅿️ Places: {zone.capacity}</p>
                   )}
                   <span style={{
                     display: 'inline-block', padding: '3px 10px', borderRadius: 12,
@@ -384,6 +415,37 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
         })}
       </div>
 
+      {/* ── Motion mode indicator (top-right corner of map) ──────────────── */}
+      <div
+        ref={speedIndicRef}
+        style={{
+          position: 'absolute',
+          top: 12,
+          right: 56, // leave room for zoom control
+          zIndex: 20,
+          background: 'rgba(10,10,18,0.85)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          border: `1px solid ${motionConfig.color}33`,
+          borderRadius: 20,
+          padding: '4px 10px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          pointerEvents: 'none',
+        }}
+      >
+        <span style={{ fontSize: '0.75rem' }}>{motionConfig.icon}</span>
+        <span style={{ fontSize: '0.65rem', fontWeight: 700, color: motionConfig.color, letterSpacing: '0.03em' }}>
+          {motionConfig.label}
+        </span>
+        {motionMode === 'highway' && (
+          <span style={{ fontSize: '0.6rem', color: '#404060', marginLeft: 2 }}>
+            Alertes suspendues
+          </span>
+        )}
+      </div>
+
       {/* ── Paid Zone Alert Banner ─────────────────────────────────────────── */}
       {parkingAlert && (
         <div
@@ -399,7 +461,7 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
             <div style={{ fontSize: '1.5rem', flexShrink: 0 }}>⚠️</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontWeight: 700, fontSize: '0.875rem', marginBottom: '2px' }}>
-                Zone payante à proximité
+                {motionMode === 'parking' ? '🔍 Parking payant proche' : '🅿️ Zone payante à proximité'}
               </p>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {parkingAlert.name}
@@ -443,25 +505,21 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
           opacity: 0,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 6px rgba(34,197,94,0.6)' }} />
-          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-dim)' }}>
-            Gratuit {zoneCount.free > 0 && <span style={{ color: 'var(--accent)' }}>({zoneCount.free})</span>}
-          </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--danger)', boxShadow: '0 0 6px rgba(239,68,68,0.6)' }} />
-          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-dim)' }}>
-            Payant {zoneCount.paid > 0 && <span style={{ color: 'var(--danger)' }}>({zoneCount.paid})</span>}
-          </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--info)', boxShadow: '0 0 6px rgba(59,130,246,0.6)' }} />
-          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-dim)' }}>Vous</span>
-        </div>
+        {[
+          { color: 'var(--accent)', shadow: 'rgba(34,197,94,0.6)', label: 'Gratuit', count: zoneCount.free, countColor: 'var(--accent)' },
+          { color: 'var(--danger)', shadow: 'rgba(239,68,68,0.6)', label: 'Payant', count: zoneCount.paid, countColor: 'var(--danger)' },
+          { color: 'var(--info)',   shadow: 'rgba(59,130,246,0.6)', label: 'Vous', count: 0, countColor: '' },
+        ].map(({ color, shadow, label, count, countColor }) => (
+          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: color, boxShadow: `0 0 6px ${shadow}` }} />
+            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-dim)' }}>
+              {label} {count > 0 && <span style={{ color: countColor }}>({count})</span>}
+            </span>
+          </div>
+        ))}
       </div>
 
-      {/* ── Recenter button ───────────────────────────────────────────────── */}
+      {/* ── Recenter button ─────────────────────────────────────────────────── */}
       {userPosition && (
         <button
           onClick={() => {

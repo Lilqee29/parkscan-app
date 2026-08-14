@@ -699,7 +699,7 @@ export default function Home() {
       return [];
     }
   });
-  const [userPosition, setUserPosition] = useState<{ lat: number; lng: number } | null>(null);
+  const [userPosition, setUserPosition] = useState<{ lat: number; lng: number; speed: number | null } | null>(null);
 
   const navRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
@@ -714,21 +714,29 @@ export default function Home() {
       Notification.requestPermission().catch(console.error);
     }
 
-    // 2. Geolocation — watchPosition for live continuous updates
+    // 2. Geolocation — watchPosition for live continuous updates with speed
     if ('geolocation' in navigator) {
       const geoEnabled = localStorage.getItem('parkscan_geo_enabled') !== 'false';
       if (geoEnabled) {
         // One-shot first for immediate response
         navigator.geolocation.getCurrentPosition(
-          (pos) => setUserPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          (pos) => setUserPosition({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            speed: pos.coords.speed,
+          }),
           console.error,
           { enableHighAccuracy: true, timeout: 10000 }
         );
-        // Then watch continuously
+        // Then watch continuously — speed updates every position fix
         navigator.geolocation.watchPosition(
-          (pos) => setUserPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          (pos) => setUserPosition({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            speed: pos.coords.speed,
+          }),
           console.error,
-          { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+          { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
         );
       }
     }
