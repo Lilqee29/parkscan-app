@@ -329,7 +329,13 @@ function NoCameraFallback({ onUpload }: { onUpload: (e: React.ChangeEvent<HTMLIn
 
 // ─── Main CameraView ──────────────────────────────────────────────────────────
 
-export default function CameraView({ apiKey, onScanResult }: CameraViewProps) {
+interface CameraViewProps {
+  apiKey: string;
+  userPosition?: { lat: number; lng: number } | null;
+  onScanResult: (text: string, status: string) => void;
+}
+
+export default function CameraView({ apiKey, userPosition, onScanResult }: CameraViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -416,6 +422,19 @@ export default function CameraView({ apiKey, onScanResult }: CameraViewProps) {
     setLoading(true);
     setResult(null);
 
+    const locContext = userPosition
+      ? `Localisation GPS actuelle du conducteur: Lat ${userPosition.lat.toFixed(4)}, Lng ${userPosition.lng.toFixed(4)} (Rennes, France).`
+      : `Ville: Rennes, France.`;
+
+    const promptText = `Tu es un assistant parking expert à Rennes, France. ${locContext}
+Analyse ce panneau de stationnement. Réponds de façon ultra directe, concise et sans aucun texte de remplissage ni formules de politesse.
+
+Structure ta réponse avec exactement ces 4 points:
+1. 🟢 OUI (Stationnement autorisé) ou 🔴 NON (Interdit)
+2. ⏱️ Durée max: [Préciser ou "Illimitée"]
+3. 💶 Horaires & Tarifs: [Préciser ou "Gratuit"]
+4. 💡 Note essentielle: [Règle principale]`;
+
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
@@ -425,13 +444,11 @@ export default function CameraView({ apiKey, onScanResult }: CameraViewProps) {
           body: JSON.stringify({
             contents: [{
               parts: [
-                {
-                  text: 'Tu es un assistant parking expert à Rennes, France. Analyse ce panneau de stationnement. Réponds UNIQUEMENT avec:\n1. "OUI" ou "NON" (peut-on se garer?)\n2. Durée maximum (si applicable)\n3. Horaires (si applicable)\n4. Tarif (si applicable)\n5. Notes importantes\n\nSois concis et clair. En français.',
-                },
+                { text: promptText },
                 { inlineData: { mimeType: 'image/jpeg', data: imageBase64.split(',')[1] } },
               ],
             }],
-            generationConfig: { temperature: 0.2, maxOutputTokens: 500 },
+            generationConfig: { temperature: 0.1, maxOutputTokens: 400 },
           }),
         }
       );

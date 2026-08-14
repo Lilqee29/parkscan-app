@@ -962,7 +962,7 @@ export default function Home() {
       >
         {/* Render CameraView when scan is active */}
         {primaryTab === 'scan' && activeTab !== 'history' && activeTab !== 'settings' && (
-          <CameraView apiKey={effectiveKey} onScanResult={addScanResult} />
+          <CameraView apiKey={effectiveKey} userPosition={userPosition} onScanResult={addScanResult} />
         )}
 
         {/* Render ParkingMap when map is active */}
