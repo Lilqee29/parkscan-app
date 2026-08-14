@@ -140,6 +140,9 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
     updateScreenPoints();
   }, [updateScreenPoints]);
 
+  // Last fetched position ref to prevent spamming Overpass API on every GPS tick
+  const lastFetchedPosRef = useRef<{ lat: number; lng: number } | null>(null);
+
   // ── Smart Notification Engine with Dwell Guardrail ───────────────────────
   const maybeNotify = useCallback((zone: ParkingZone, speed: number | null) => {
     const mode = getMotionMode(speed);
@@ -244,22 +247,31 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
         });
       }
 
-      setZones(fetched);
-      setZoneCount({
-        free: fetched.filter((z) => !z.isPaid).length,
-        paid: fetched.filter((z) => z.isPaid).length,
-      });
+      if (fetched.length > 0) {
+        setZones(fetched);
+        setZoneCount({
+          free: fetched.filter((z) => !z.isPaid).length,
+          paid: fetched.filter((z) => z.isPaid).length,
+        });
+        lastFetchedPosRef.current = { lat, lng };
 
-      // Save to localStorage for instant offline map rendering
-      try {
-        localStorage.setItem('parkscan_cached_zones', JSON.stringify(fetched));
-      } catch {
-        // quota exceeded fallback
+        // Save to localStorage for instant offline map rendering
+        try {
+          localStorage.setItem('parkscan_cached_zones', JSON.stringify(fetched));
+        } catch {
+          // quota exceeded fallback
+        }
       }
     } catch (err) {
       console.error('Overpass error:', err);
     }
   }, []);
+
+  // ── Map Mount Effect ──────────────────────────────────────────────────────
+  useEffect(() => {
+    // Fetch default Rennes parking spots on mount so labels load immediately
+    fetchParkingZones(48.1173, -1.6778);
+  }, [fetchParkingZones]);
 
   // ── Update position, marker, and run smart proximity check ───────────────
   useEffect(() => {
@@ -270,7 +282,7 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
     const mode = getMotionMode(speed);
     setMotionMode(mode);
 
-    // Move or create user marker
+    // Move user marker without re-centering map on every 1-second GPS tick
     if (userMarkerRef.current) {
       userMarkerRef.current.setLatLng([lat, lng]);
     } else {
@@ -284,16 +296,19 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
         icon: userIcon,
         zIndexOffset: 1000,
       }).addTo(map);
+
+      // Re-center map ONCE when first user position is acquired
+      map.setView([lat, lng], 16);
     }
 
-    map.setView([lat, lng], map.getZoom());
-
-    // Fetch new zones when user has moved (don't spam Overpass)
-    fetchParkingZones(lat, lng);
+    // Only refetch parking zones from API if user moved > 150 meters
+    const lastPos = lastFetchedPosRef.current;
+    if (!lastPos || getDistance(lastPos.lat, lastPos.lng, lat, lng) > 150) {
+      fetchParkingZones(lat, lng);
+    }
 
     // ── Smart proximity + notification check ───────────────────────────────
     if (mode === 'highway') {
-      // Driving fast — no alerts, clear banner
       setParkingAlert(null);
       return;
     }
@@ -307,7 +322,6 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
       maybeNotify(nearestPaid, speed);
     } else {
       setParkingAlert(null);
-      // If far from all paid zones → reset all cooldowns so they're fresh next time
       const anyNearby = zones.some(
         (z) => z.isPaid && getDistance(lat, lng, z.lat, z.lng) < CLEAR_RADIUS_M
       );
