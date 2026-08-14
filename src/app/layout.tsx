@@ -6,6 +6,10 @@ export const metadata: Metadata = {
   description:
     "Point your phone at any French parking sign and get an instant AI-powered answer. Live paid parking zone map for Rennes. Never get a ticket again.",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/assets/parkscan_icon.jpeg",
+    apple: "/assets/parkscan_icon.jpeg",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -17,6 +21,7 @@ export const metadata: Metadata = {
     title: "ParkScan — AI Parking Sign Reader",
     description: "Never get a parking ticket in Rennes again.",
     type: "website",
+    images: [{ url: "/assets/parkscan_icon.jpeg" }],
   },
 };
 
@@ -39,7 +44,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
           rel="stylesheet"
         />
-        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <link rel="apple-touch-icon" href="/assets/parkscan_icon.jpeg" />
+        <link rel="icon" type="image/jpeg" href="/assets/parkscan_icon.jpeg" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="mobile-web-app-capable" content="yes" />

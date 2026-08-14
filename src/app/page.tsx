@@ -714,14 +714,21 @@ export default function Home() {
       Notification.requestPermission().catch(console.error);
     }
 
-    // 2. Geolocation Permission
+    // 2. Geolocation — watchPosition for live continuous updates
     if ('geolocation' in navigator) {
       const geoEnabled = localStorage.getItem('parkscan_geo_enabled') !== 'false';
       if (geoEnabled) {
+        // One-shot first for immediate response
         navigator.geolocation.getCurrentPosition(
           (pos) => setUserPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
           console.error,
-          { enableHighAccuracy: true }
+          { enableHighAccuracy: true, timeout: 10000 }
+        );
+        // Then watch continuously
+        navigator.geolocation.watchPosition(
+          (pos) => setUserPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          console.error,
+          { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
         );
       }
     }
@@ -860,7 +867,12 @@ export default function Home() {
       {/* ── Main Content View ── */}
       <div
         ref={contentRef}
-        style={{ position: 'absolute', inset: 0, paddingBottom: 'var(--bottom-nav-h)' }}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          paddingTop: 'calc(var(--top-bar-h) + env(safe-area-inset-top))',
+          paddingBottom: 'calc(var(--bottom-nav-h) + env(safe-area-inset-bottom))',
+        }}
       >
         {/* Render CameraView when scan is active */}
         {primaryTab === 'scan' && activeTab !== 'history' && activeTab !== 'settings' && (

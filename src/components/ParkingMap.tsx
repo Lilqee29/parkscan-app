@@ -20,6 +20,11 @@ interface ParkingZone {
   capacity: string;
 }
 
+interface ScreenPoint {
+  x: number;
+  y: number;
+}
+
 function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371e3;
   const φ1 = (lat1 * Math.PI) / 180;
@@ -36,9 +41,25 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
   const userMarkerRef = useRef<L.Marker | null>(null);
   const alertRef = useRef<HTMLDivElement>(null);
   const legendRef = useRef<HTMLDivElement>(null);
+  const notifiedZonesRef = useRef<Set<number>>(new Set());
 
   const [parkingAlert, setParkingAlert] = useState<ParkingZone | null>(null);
   const [zoneCount, setZoneCount] = useState<{ free: number; paid: number }>({ free: 0, paid: 0 });
+  const [zones, setZones] = useState<ParkingZone[]>([]);
+  const [screenPoints, setScreenPoints] = useState<Record<number, ScreenPoint>>({});
+  const [selectedZone, setSelectedZone] = useState<ParkingZone | null>(null);
+
+  // ── Update screen positions of overlay cards on map move/zoom ────────────────
+  const updateScreenPoints = useCallback(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    const pts: Record<number, ScreenPoint> = {};
+    zones.forEach((z) => {
+      const p = map.latLngToContainerPoint([z.lat, z.lng]);
+      pts[z.id] = { x: p.x, y: p.y };
+    });
+    setScreenPoints(pts);
+  }, [zones]);
 
   // ── Initialize Map ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -51,20 +72,19 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
       attributionControl: false,
     });
 
-    // Custom dark-style tile filter
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '© OpenStreetMap',
       className: 'dark-tiles',
     }).addTo(map);
 
-    // Custom attribution (minimal)
     L.control.attribution({ prefix: false, position: 'bottomright' }).addTo(map);
-
-    // Zoom control (styled via CSS)
     L.control.zoom({ position: 'topright' }).addTo(map);
 
     mapInstanceRef.current = map;
+
+    // Recalculate overlay card positions whenever map moves or zooms
+    map.on('move zoom moveend zoomend', updateScreenPoints);
 
     // Entrance animation
     gsap.fromTo(mapRef.current,
@@ -80,11 +100,21 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
       map.remove();
       mapInstanceRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-bind move listener when updateScreenPoints changes (zones loaded)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    map.off('move zoom moveend zoomend');
+    map.on('move zoom moveend zoomend', updateScreenPoints);
+    updateScreenPoints(); // run immediately
+  }, [updateScreenPoints]);
 
   // ── Fetch Parking Zones ─────────────────────────────────────────────────────
   const fetchParkingZones = useCallback(async (lat: number, lng: number) => {
-    const radius = 350;
+    const radius = 500;
     const query = `
       [out:json][timeout:15];
       (
@@ -106,83 +136,83 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
       if (!res.ok) return;
 
       const data = await res.json();
-      const zones: ParkingZone[] = [];
+      const fetched: ParkingZone[] = [];
 
       for (const el of data.elements) {
         const tags = el.tags || {};
-        const isPaid = tags.fee === 'yes' || tags.parking === 'paid' || tags.parking === 'lane' || tags.access === 'customers';
+        const isPaid =
+          tags.fee === 'yes' ||
+          tags.parking === 'paid' ||
+          tags.parking === 'lane' ||
+          tags.access === 'customers';
 
+        // accept nodes AND ways with a center coord
+        let elLat: number | undefined;
+        let elLng: number | undefined;
         if (el.type === 'node') {
-          zones.push({
-            id: el.id, lat: el.lat, lng: el.lon,
-            isPaid,
-            name: tags.name || (isPaid ? 'Zone payante' : 'Parking gratuit'),
-            operator: tags.operator || '',
-            maxStay: tags.maxstay || '',
-            capacity: tags.capacity || '',
-          });
+          elLat = el.lat;
+          elLng = el.lon;
+        } else if (el.center) {
+          elLat = el.center.lat;
+          elLng = el.center.lon;
         }
+        if (elLat === undefined || elLng === undefined) continue;
+
+        fetched.push({
+          id: el.id,
+          lat: elLat,
+          lng: elLng,
+          isPaid,
+          name: tags.name || (isPaid ? 'Zone payante' : 'Parking gratuit'),
+          operator: tags.operator || '',
+          maxStay: tags.maxstay || '',
+          capacity: tags.capacity || '',
+        });
       }
 
-      if (!mapInstanceRef.current) return;
+      setZones(fetched);
 
-      const freeCount = zones.filter((z) => !z.isPaid).length;
-      const paidCount = zones.filter((z) => z.isPaid).length;
+      const freeCount = fetched.filter((z) => !z.isPaid).length;
+      const paidCount = fetched.filter((z) => z.isPaid).length;
       setZoneCount({ free: freeCount, paid: paidCount });
 
-      // Add markers with permanent visible labels directly on map
-      zones.forEach((zone) => {
-        const shortTitle = zone.name.length > 18 ? zone.name.slice(0, 18) + '…' : zone.name;
-
-        const icon = L.divIcon({
-          className: 'parking-label-wrapper',
-          html: `
-            <div class="parking-label-badge ${zone.isPaid ? 'paid' : 'free'}">
-              <span class="badge-dot ${zone.isPaid ? 'paid' : 'free'}"></span>
-              <span class="badge-name">${shortTitle}</span>
-              <span class="badge-status ${zone.isPaid ? 'paid' : 'free'}">${zone.isPaid ? 'PAYANT' : 'FREE'}</span>
-            </div>
-          `,
-          iconSize: [120, 28],
-          iconAnchor: [60, 14],
-        });
-
-        L.marker([zone.lat, zone.lng], { icon })
-          .addTo(mapInstanceRef.current!)
-          .bindPopup(`
-            <div style="font-family:'Inter',sans-serif;min-width:160px;padding:4px 0">
-              <div style="font-weight:800;font-size:14px;margin-bottom:6px;color:#eaeaf8">${zone.name}</div>
-              ${zone.operator ? `<div style="font-size:11px;color:#888899;margin-bottom:3px">🏢 Opérateur: ${zone.operator}</div>` : ''}
-              ${zone.maxStay ? `<div style="font-size:11px;color:#888899;margin-bottom:6px">⏱️ Durée max: ${zone.maxStay}</div>` : ''}
-              ${zone.capacity ? `<div style="font-size:11px;color:#888899;margin-bottom:6px">🅿️ Places: ${zone.capacity}</div>` : ''}
-              <span style="
-                display:inline-block;padding:4px 12px;border-radius:14px;
-                font-size:11px;font-weight:800;letter-spacing:0.04em;
-                background:${zone.isPaid ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)'};
-                color:${zone.isPaid ? '#ef4444' : '#22c55e'};
-                border:1px solid ${zone.isPaid ? 'rgba(239,68,68,0.35)' : 'rgba(34,197,94,0.35)'};
-              ">
-                ${zone.isPaid ? '🔴 ZONE PAYANTE' : '🟢 PARKING GRATUIT'}
-              </span>
-            </div>
-          `, { className: 'parkscan-popup' });
-      });
-
-      // Paid zone alert
-      const nearestPaid = zones.find(
-        (z) => z.isPaid && getDistance(lat, lng, z.lat, z.lng) < 60
+      // Check proximity for alert + notification
+      const nearestPaid = fetched.find(
+        (z) => z.isPaid && getDistance(lat, lng, z.lat, z.lng) < 80
       );
       if (nearestPaid) {
         setParkingAlert(nearestPaid);
         if (navigator.vibrate) navigator.vibrate([150, 80, 150]);
-        if (Notification.permission === 'granted') {
-          new Notification('🅿️ Zone payante détectée!', {
-            body: `${nearestPaid.name} — Parking payant à proximité`,
-            icon: '/assets/parkscan_icon.jpeg',
-          });
+        // Only notify once per zone to avoid spam
+        if (
+          Notification.permission === 'granted' &&
+          !notifiedZonesRef.current.has(nearestPaid.id)
+        ) {
+          notifiedZonesRef.current.add(nearestPaid.id);
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready.then((reg) => {
+              reg.showNotification('🅿️ Zone payante à proximité!', {
+                body: `${nearestPaid.name} — À moins de 80m`,
+                icon: '/assets/parkscan_icon.jpeg',
+                badge: '/assets/parkscan_icon.jpeg',
+                tag: `paid-zone-${nearestPaid.id}`,
+                ...({ vibrate: [200, 100, 200] } as Record<string, unknown>),
+              });
+            });
+          } else {
+            new Notification('🅿️ Zone payante à proximité!', {
+              body: `${nearestPaid.name} — À moins de 80m`,
+              icon: '/assets/parkscan_icon.jpeg',
+            });
+          }
         }
       } else {
         setParkingAlert(null);
+        // Clear notified set when far from all zones (reset after 200m)
+        const anyClose = fetched.some(
+          (z) => z.isPaid && getDistance(lat, lng, z.lat, z.lng) < 200
+        );
+        if (!anyClose) notifiedZonesRef.current.clear();
       }
     } catch (err) {
       console.error('Overpass error:', err);
@@ -200,6 +230,7 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
     } else {
       const userIcon = L.divIcon({
         className: 'user-location-marker',
+        html: '', // styled entirely via CSS ::before pseudo-element
         iconSize: [18, 18],
         iconAnchor: [9, 9],
       });
@@ -213,6 +244,11 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
     fetchParkingZones(userPosition.lat, userPosition.lng);
   }, [userPosition, fetchParkingZones]);
 
+  // ── Update card positions when zones change ─────────────────────────────────
+  useEffect(() => {
+    updateScreenPoints();
+  }, [zones, updateScreenPoints]);
+
   // ── Alert Animation ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!alertRef.current) return;
@@ -223,8 +259,6 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
       );
     }
   }, [parkingAlert]);
-
-
 
   const dismissAlert = () => {
     if (alertRef.current) {
@@ -238,7 +272,7 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
   };
 
   return (
-    <div style={{ position: 'relative', height: '100%' }}>
+    <div style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
       {/* Dark tile CSS injection */}
       <style>{`
         .dark-tiles {
@@ -262,15 +296,101 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
         .leaflet-control-attribution { background: rgba(16,16,28,0.7) !important; color: #404060 !important; font-size: 10px !important; border-radius: 4px !important; }
       `}</style>
 
+      {/* Map canvas */}
       <div ref={mapRef} style={{ width: '100%', height: '100%', opacity: 0 }} />
 
-      {/* Paid Zone Alert */}
+      {/* ── React-rendered overlay zone cards ─────────────────────────────── */}
+      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 5 }}>
+        {zones.map((zone) => {
+          const pt = screenPoints[zone.id];
+          if (!pt) return null;
+          const shortTitle = zone.name.length > 16 ? zone.name.slice(0, 16) + '…' : zone.name;
+          return (
+            <div
+              key={zone.id}
+              className="zone-card-overlay"
+              style={{ left: pt.x, top: pt.y, pointerEvents: 'auto' }}
+              onClick={() => setSelectedZone(selectedZone?.id === zone.id ? null : zone)}
+            >
+              <div className={`zone-card ${zone.isPaid ? 'paid' : 'free'}`}>
+                <span style={{
+                  width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                  background: zone.isPaid ? '#ef4444' : '#22c55e',
+                  boxShadow: zone.isPaid
+                    ? '0 0 6px rgba(239,68,68,0.8)'
+                    : '0 0 6px rgba(34,197,94,0.8)',
+                }} />
+                <span style={{
+                  fontSize: '0.72rem', fontWeight: 700,
+                  color: '#eaeaf8', letterSpacing: '-0.01em',
+                }}>{shortTitle}</span>
+                <span style={{
+                  fontSize: '0.58rem', fontWeight: 800,
+                  padding: '1px 5px', borderRadius: 8, letterSpacing: '0.04em',
+                  background: zone.isPaid ? 'rgba(239,68,68,0.18)' : 'rgba(34,197,94,0.18)',
+                  color: zone.isPaid ? '#ef4444' : '#22c55e',
+                }}>{zone.isPaid ? 'PAYANT' : 'FREE'}</span>
+              </div>
+
+              {/* Expanded popup card */}
+              {selectedZone?.id === zone.id && (
+                <div style={{
+                  position: 'absolute',
+                  bottom: 'calc(100% + 6px)',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  background: 'rgba(16,16,28,0.97)',
+                  backdropFilter: 'blur(16px)',
+                  WebkitBackdropFilter: 'blur(16px)',
+                  border: `1px solid ${zone.isPaid ? 'rgba(239,68,68,0.35)' : 'rgba(34,197,94,0.35)'}`,
+                  borderRadius: 14,
+                  padding: '12px 14px',
+                  minWidth: 180,
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
+                  pointerEvents: 'auto',
+                  zIndex: 20,
+                }}>
+                  <p style={{ fontWeight: 800, fontSize: '0.85rem', marginBottom: 6, color: '#eaeaf8' }}>
+                    {zone.name}
+                  </p>
+                  {zone.operator && (
+                    <p style={{ fontSize: '0.72rem', color: '#7070a0', marginBottom: 3 }}>
+                      🏢 {zone.operator}
+                    </p>
+                  )}
+                  {zone.maxStay && (
+                    <p style={{ fontSize: '0.72rem', color: '#7070a0', marginBottom: 3 }}>
+                      ⏱️ Max: {zone.maxStay}
+                    </p>
+                  )}
+                  {zone.capacity && (
+                    <p style={{ fontSize: '0.72rem', color: '#7070a0', marginBottom: 6 }}>
+                      🅿️ Places: {zone.capacity}
+                    </p>
+                  )}
+                  <span style={{
+                    display: 'inline-block', padding: '3px 10px', borderRadius: 12,
+                    fontSize: '0.7rem', fontWeight: 800,
+                    background: zone.isPaid ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
+                    color: zone.isPaid ? '#ef4444' : '#22c55e',
+                    border: `1px solid ${zone.isPaid ? 'rgba(239,68,68,0.35)' : 'rgba(34,197,94,0.35)'}`,
+                  }}>
+                    {zone.isPaid ? '🔴 ZONE PAYANTE' : '🟢 PARKING GRATUIT'}
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Paid Zone Alert Banner ─────────────────────────────────────────── */}
       {parkingAlert && (
         <div
           ref={alertRef}
           style={{
             position: 'absolute',
-            bottom: 'calc(var(--bottom-nav-h) + 16px)',
+            bottom: 'calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + 16px)',
             left: '16px', right: '16px',
             zIndex: 20,
           }}
@@ -279,7 +399,7 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
             <div style={{ fontSize: '1.5rem', flexShrink: 0 }}>⚠️</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontWeight: 700, fontSize: '0.875rem', marginBottom: '2px' }}>
-                Zone payante détectée
+                Zone payante à proximité
               </p>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {parkingAlert.name}
@@ -303,12 +423,12 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
         </div>
       )}
 
-      {/* Legend */}
+      {/* ── Legend ────────────────────────────────────────────────────────── */}
       <div
         ref={legendRef}
         style={{
           position: 'absolute',
-          bottom: 'calc(var(--bottom-nav-h) + 16px)',
+          bottom: 'calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + 16px)',
           left: '16px',
           zIndex: 20,
           background: 'var(--glass-bg)',
@@ -341,7 +461,7 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
         </div>
       </div>
 
-      {/* Recenter button */}
+      {/* ── Recenter button ───────────────────────────────────────────────── */}
       {userPosition && (
         <button
           onClick={() => {
@@ -351,7 +471,7 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
           }}
           style={{
             position: 'absolute',
-            bottom: 'calc(var(--bottom-nav-h) + 16px)',
+            bottom: 'calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + 16px)',
             right: '16px',
             zIndex: 20,
             width: 42, height: 42, borderRadius: '50%',
