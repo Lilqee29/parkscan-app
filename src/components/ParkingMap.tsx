@@ -62,6 +62,8 @@ export default function ParkingMap({ userPosition }: ParkingMapProps) {
 
   // Dwell timer ref: zoneId -> timestamp when user first became stationary in zone
   const zoneDwellRef = useRef<Map<number, number>>(new Map());
+  // Smart notification dedup: zone id -> timestamp of last notification
+  const zoneCooldownRef = useRef<Map<number, number>>(new Map());
 
   const [parkingAlert, setParkingAlert] = useState<ParkingZone | null>(null);
   const [zoneCount, setZoneCount]       = useState<{ free: number; paid: number }>({ free: 0, paid: 0 });
