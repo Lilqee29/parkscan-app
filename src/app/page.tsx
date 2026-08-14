@@ -58,21 +58,19 @@ export default function Home() {
         <div className="flex gap-2 pointer-events-auto">
           <button
             onClick={() => setShowMap(!showMap)}
-            className={`w-10 h-10 rounded-full flex items-center justify-center text-lg transition-all ${
-              showMap ? 'bg-[#22c55e] text-black' : 'bg-white/10 backdrop-blur'
-            }`}
+            className={`btn-glass ${showMap ? 'active' : ''}`}
           >
             🗺️
           </button>
           <button
             onClick={() => { setShowHistory(true); setShowSettings(false); }}
-            className="w-10 h-10 rounded-full bg-white/10 backdrop-blur flex items-center justify-center text-lg"
+            className="btn-glass"
           >
             🕐
           </button>
           <button
             onClick={() => { setShowSettings(true); setShowHistory(false); }}
-            className="w-10 h-10 rounded-full bg-white/10 backdrop-blur flex items-center justify-center text-lg"
+            className="btn-glass"
           >
             ⚙️
           </button>
@@ -97,15 +95,15 @@ export default function Home() {
             </div>
             <div className="p-4 space-y-4">
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Gemini API Key</label>
+                <label className="block text-sm text-[#888899] mb-1">Gemini API Key</label>
                 <input
                   type="password"
                   defaultValue={apiKey}
                   placeholder="Enter your API key..."
-                  className="w-full px-3 py-2 bg-[#0a0a0f] border border-[#2a2a3a] rounded-lg text-white focus:border-[#22c55e] outline-none"
+                  className="input-premium"
                   id="settings-api-key"
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-[#888899] mt-1">
                   Free at <a href="https://aistudio.google.com/apikey" target="_blank" className="text-[#22c55e]">aistudio.google.com</a>
                 </p>
               </div>
@@ -114,7 +112,7 @@ export default function Home() {
                   const input = document.getElementById('settings-api-key') as HTMLInputElement;
                   saveApiKey(input.value.trim());
                 }}
-                className="w-full py-3 bg-[#22c55e] text-black font-semibold rounded-xl"
+                className="btn-scan animate-pulse-glow"
               >
                 Save
               </button>
@@ -156,7 +154,7 @@ export default function Home() {
                     setHistory([]);
                     localStorage.removeItem('parkscan_history');
                   }}
-                  className="w-full py-3 bg-[#ef4444] text-white font-semibold rounded-xl"
+                  className="btn-danger"
                 >
                   Clear History
                 </button>
@@ -169,18 +167,18 @@ export default function Home() {
       {/* API Key Prompt (first time) */}
       {!apiKey && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-          <div className="bg-[#14141f] border border-[#2a2a3a] rounded-2xl p-8 w-full max-w-sm text-center">
+          <div className="card-premium p-8 w-full max-w-sm text-center">
             <h2 className="text-2xl font-bold mb-2">🅿️ Welcome to ParkScan</h2>
-            <p className="text-gray-400 text-sm mb-4">
+            <p className="text-[#888899] text-sm mb-4">
               Enter your Gemini API key to start reading parking signs.
             </p>
             <input
               type="password"
               placeholder="Paste your API key..."
-              className="w-full px-3 py-2 bg-[#0a0a0f] border border-[#2a2a3a] rounded-lg text-white mb-2 focus:border-[#22c55e] outline-none"
+              className="input-premium mb-2"
               id="prompt-api-key"
             />
-            <p className="text-xs text-gray-500 mb-4">
+            <p className="text-xs text-[#888899] mb-4">
               Free at <a href="https://aistudio.google.com/apikey" target="_blank" className="text-[#22c55e]">aistudio.google.com</a>
             </p>
             <button
@@ -189,7 +187,7 @@ export default function Home() {
                 const key = input.value.trim();
                 if (key) saveApiKey(key);
               }}
-              className="w-full py-3 bg-[#22c55e] text-black font-semibold rounded-xl"
+              className="btn-gradient"
             >
               Let&apos;s Go!
             </button>

@@ -5,8 +5,13 @@
   --bg-card: #14141f;
   --border: #2a2a3a;
   --accent: #22c55e;
+  --accent-dark: #16a34a;
   --danger: #ef4444;
   --warning: #f59e0b;
+  --info: #3b82f6;
+  --info-dark: #2563eb;
+  --text: #e8e8f0;
+  --text-dim: #888899;
 }
 
 * {
@@ -24,26 +29,294 @@ html, body {
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: var(--bg);
-  color: #e8e8f0;
+  color: var(--text);
   overflow: hidden;
 }
 
-/* Animations */
+/* ========================================
+   Premium Buttons
+   ======================================== */
+
+/* Button 1: Primary Scan Button */
+.btn-scan {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+  color: #000;
+  font-size: 2rem;
+  cursor: pointer;
+  position: relative;
+  box-shadow:
+    0 0 30px rgba(34, 197, 94, 0.4),
+    inset 0 2px 4px rgba(255, 255, 255, 0.2),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.2);
+  transition: all 0.15s ease;
+  overflow: hidden;
+}
+
+.btn-scan::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.3),
+    transparent
+  );
+  transition: left 0.5s ease;
+}
+
+.btn-scan:hover::before {
+  left: 100%;
+}
+
+.btn-scan:hover {
+  transform: scale(1.05);
+  box-shadow:
+    0 0 40px rgba(34, 197, 94, 0.6),
+    inset 0 2px 4px rgba(255, 255, 255, 0.3),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.btn-scan:active {
+  transform: scale(0.95);
+  box-shadow:
+    0 0 20px rgba(34, 197, 94, 0.3),
+    inset 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Button 2: Glassmorphic Toggle */
+.btn-glass {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: rgba(20, 20, 31, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--text);
+  font-size: 1.1rem;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+}
+
+.btn-glass:hover {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: var(--accent);
+  box-shadow: 0 4px 20px rgba(34, 197, 94, 0.2);
+}
+
+.btn-glass:active {
+  transform: scale(0.95);
+}
+
+.btn-glass.active {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+}
+
+/* Button 3: Premium Gradient */
+.btn-gradient {
+  width: 100%;
+  padding: 14px 24px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(135deg, var(--info) 0%, var(--info-dark) 100%);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.3);
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-gradient::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, transparent 100%);
+  pointer-events: none;
+}
+
+.btn-gradient:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 25px rgba(59, 130, 246, 0.4);
+}
+
+.btn-gradient:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 15px rgba(59, 130, 246, 0.3);
+}
+
+/* Button 4: Danger Action */
+.btn-danger {
+  width: 100%;
+  padding: 14px 24px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(135deg, var(--danger) 0%, #dc2626 100%);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.3);
+  transition: all 0.2s ease;
+}
+
+.btn-danger:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 25px rgba(239, 68, 68, 0.4);
+}
+
+.btn-danger:active {
+  transform: translateY(0);
+}
+
+/* Button 5: Subtle/Secondary */
+.btn-subtle {
+  width: 100%;
+  padding: 14px 24px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-subtle:hover {
+  background: var(--bg);
+  border-color: var(--accent);
+}
+
+.btn-subtle:active {
+  transform: scale(0.98);
+}
+
+/* ========================================
+   Animations
+   ======================================== */
 @keyframes slide-in {
   from { transform: translateX(100%); }
   to { transform: translateX(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.6); }
+  50% { box-shadow: 0 0 40px rgba(59, 130, 246, 0.9); }
+}
+
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 30px rgba(34, 197, 94, 0.4); }
+  50% { box-shadow: 0 0 50px rgba(34, 197, 94, 0.7); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
 .animate-slide-in {
   animation: slide-in 0.25s ease-out;
 }
 
-/* Leaflet overrides */
+.animate-pulse-glow {
+  animation: glow 2s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* ========================================
+   Premium Card Styles
+   ======================================== */
+.card-premium {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.card-glass {
+  background: rgba(20, 20, 31, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+}
+
+/* ========================================
+   Input Styles
+   ======================================== */
+.input-premium {
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 1rem;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.input-premium:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.15);
+}
+
+.input-premium::placeholder {
+  color: var(--text-dim);
+}
+
+/* ========================================
+   Status Indicators
+   ======================================== */
+.status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.free { background: var(--accent); }
+.status-dot.paid { background: var(--danger); }
+.status-dot.restricted { background: var(--warning); }
+.status-dot.user { background: var(--info); animation: pulse 2s infinite; }
+
+/* ========================================
+   Leaflet overrides
+   ======================================== */
 .leaflet-control-zoom { border: none !important; }
-.leaflet-control-zoom a { background: var(--bg-card) !important; color: #e8e8f0 !important; border: 1px solid var(--border) !important; }
+.leaflet-control-zoom a { background: var(--bg-card) !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
 .leaflet-control-zoom a:hover { background: var(--bg) !important; }
 
-/* Safe area padding for iOS */
+/* ========================================
+   Safe area padding for iOS
+   ======================================== */
 @supports (padding: env(safe-area-inset-bottom)) {
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom);

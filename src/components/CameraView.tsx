@@ -125,7 +125,7 @@ export default function CameraView({ apiKey, onScanResult }: CameraViewProps) {
       {noCamera && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0a0a0f] gap-4 p-8 text-center">
           <p className="text-xl text-gray-400">📷 Camera not available</p>
-          <label className="px-6 py-3 bg-[#22c55e] text-black font-semibold rounded-xl cursor-pointer">
+          <label className="btn-gradient cursor-pointer">
             Upload a Photo
             <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleUpload} />
           </label>
@@ -171,8 +171,10 @@ export default function CameraView({ apiKey, onScanResult }: CameraViewProps) {
       {!loading && !result && (
         <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-8 pb-8 pt-16 bg-gradient-to-t from-[#0a0a0f] to-transparent">
           <label className="flex flex-col items-center gap-1 cursor-pointer">
-            <span className="text-2xl">🖼️</span>
-            <span className="text-xs text-gray-400 uppercase">Upload</span>
+            <span className="btn-glass flex items-center justify-center">
+              <span className="text-xl">🖼️</span>
+            </span>
+            <span className="text-xs text-[#888899] uppercase">Upload</span>
             <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleUpload} />
           </label>
 
@@ -181,7 +183,7 @@ export default function CameraView({ apiKey, onScanResult }: CameraViewProps) {
               const frame = captureFrame();
               if (frame) handleScan(frame);
             }}
-            className="w-18 h-18 bg-[#22c55e] rounded-full flex items-center justify-center text-3xl shadow-[0_0_30px_rgba(34,197,94,0.3)] active:scale-95 transition-transform"
+            className="btn-scan animate-pulse-glow"
           >
             📸
           </button>
@@ -190,8 +192,10 @@ export default function CameraView({ apiKey, onScanResult }: CameraViewProps) {
             onClick={toggleFlash}
             className="flex flex-col items-center gap-1"
           >
-            <span className="text-2xl">{flashOn ? '✨' : '💡'}</span>
-            <span className="text-xs text-gray-400 uppercase">Flash</span>
+            <span className={`btn-glass flex items-center justify-center ${flashOn ? 'active' : ''}`}>
+              <span className="text-xl">{flashOn ? '✨' : '💡'}</span>
+            </span>
+            <span className="text-xs text-[#888899] uppercase">Flash</span>
           </button>
         </div>
       )}
