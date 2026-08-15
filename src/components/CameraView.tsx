@@ -435,48 +435,64 @@ Structure ta réponse avec exactement ces 4 points:
 3. 💶 Horaires & Tarifs: [Préciser ou "Gratuit"]
 4. 💡 Note essentielle: [Règle principale]`;
 
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { text: promptText },
-                { inlineData: { mimeType: 'image/jpeg', data: imageBase64.split(',')[1] } },
-              ],
-            }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 400 },
-          }),
+    const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.5-flash'];
+    let data: { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> } | null = null;
+    let lastError: Error | null = null;
+
+    for (const model of modelsToTry) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: promptText },
+                  { inlineData: { mimeType: 'image/jpeg', data: imageBase64.split(',')[1] } },
+                ],
+              }],
+              generationConfig: { temperature: 0.1, maxOutputTokens: 400 },
+            }),
+          }
+        );
+
+        if (res.ok) {
+          data = await res.json();
+          break;
+        } else {
+          const errText = await res.text();
+          lastError = new Error(`API ${res.status} (${model}): ${errText}`);
         }
-      );
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(`Network error on ${model}`);
+      }
+    }
 
-      if (!res.ok) throw new Error(`API error ${res.status}`);
-
-      const data = await res.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response';
-      const cleaned = text.replace(/[*#_`~]/g, '').trim();
-      const lower = cleaned.toLowerCase();
-      const status =
-        lower.startsWith('oui') || (lower.includes('oui') && !lower.includes('non'))
-          ? 'yes'
-          : lower.startsWith('non') || lower.includes('non')
-          ? 'no'
-          : 'unknown';
-
-      setResult({ text: cleaned, status });
-      onScanResult(cleaned, status);
-    } catch (err) {
+    if (!data) {
       setResult({
-        text: `Erreur: ${err instanceof Error ? err.message : 'Erreur inconnue'}`,
+        text: `Erreur API: ${lastError ? lastError.message : 'Impossible de contacter Gemini. Vérifiez votre clé API dans les paramètres.'}`,
         status: 'unknown',
       });
-    } finally {
       setLoading(false);
+      return;
     }
-  }, [apiKey, onScanResult]);
+
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response';
+    const cleaned = text.replace(/[*#_`~]/g, '').trim();
+    const lower = cleaned.toLowerCase();
+    const status =
+      lower.startsWith('oui') || (lower.includes('oui') && !lower.includes('non'))
+        ? 'yes'
+        : lower.startsWith('non') || lower.includes('non')
+        ? 'no'
+        : 'unknown';
+
+    setResult({ text: cleaned, status });
+    onScanResult(cleaned, status);
+    setLoading(false);
+  }, [apiKey, userPosition, onScanResult]);
 
   // ── Upload Handler ──────────────────────────────────────────────────────────
   const handleUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
